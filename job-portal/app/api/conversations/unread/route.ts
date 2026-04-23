@@ -6,6 +6,8 @@ import Conversation from '@/models/Conversation';
 import Message from '@/models/Message';
 import mongoose from 'mongoose';
 
+
+export const dynamic = 'force-dynamic';
 export async function GET(): Promise<NextResponse> {
   try {
     const session = await getServerSession(authOptions);

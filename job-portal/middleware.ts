@@ -21,5 +21,6 @@ export const config = {
     '/recruiter/:path*',
     '/chat/:path*',
     '/reviews/:path*',
+    '/company/:path*',
   ],
 };

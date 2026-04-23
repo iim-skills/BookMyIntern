@@ -8,16 +8,16 @@ import { useRouter, useParams }  from 'next/navigation';
 import Link                      from 'next/link';
 import type { IConversation, IConversationParticipant, IMessage } from '@/types';
 
-function formatTime(dateStr: string): string {
-  return new Date(dateStr).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
+function formatTime(d: string) {
+  return new Date(d).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' });
 }
-function formatDate(dateStr: string): string {
-  const d   = new Date(dateStr);
+function formatDate(d: string) {
+  const dt  = new Date(d);
   const now = new Date();
-  if (d.toDateString() === now.toDateString()) return 'Today';
+  if (dt.toDateString() === now.toDateString()) return 'Today';
   const yest = new Date(now); yest.setDate(now.getDate() - 1);
-  if (d.toDateString() === yest.toDateString()) return 'Yesterday';
-  return d.toLocaleDateString();
+  if (dt.toDateString() === yest.toDateString()) return 'Yesterday';
+  return dt.toLocaleDateString();
 }
 
 export default function ChatPage() {
@@ -25,40 +25,37 @@ export default function ChatPage() {
   const router = useRouter();
   const { id } = useParams<{ id: string }>();
 
-  const [convo,      setConvo]      = useState<IConversation | null>(null);
-  const [messages,   setMessages]   = useState<IMessage[]>([]);
-  const [text,       setText]       = useState('');
-  const [sending,    setSending]    = useState(false);
-  const [loading,    setLoading]    = useState(true);
-  const [notFound,   setNotFound]   = useState(false);
-  // Scroll-to-bottom notification
-  const [newCount,   setNewCount]   = useState(0);
-  const [atBottom,   setAtBottom]   = useState(true);
+  const [convo,    setConvo]    = useState<IConversation | null>(null);
+  const [messages, setMessages] = useState<IMessage[]>([]);
+  const [text,     setText]     = useState('');
+  const [sending,  setSending]  = useState(false);
+  const [loading,  setLoading]  = useState(true);
+  const [notFound, setNotFound] = useState(false);
+  const [newCount, setNewCount] = useState(0);
+  const [atBottom, setAtBottom] = useState(true);
 
-  const scrollRef = useRef<HTMLDivElement>(null); // the scrollable messages container
-  const bottomRef = useRef<HTMLDivElement>(null); // invisible sentinel at the very bottom
-  const pollRef   = useRef<ReturnType<typeof setInterval> | null>(null);
-  const prevLen   = useRef(0);
+  const scrollRef  = useRef<HTMLDivElement>(null);
+  const bottomRef  = useRef<HTMLDivElement>(null);
+  const pollRef    = useRef<ReturnType<typeof setInterval> | null>(null);
+  // Track the createdAt of the most-recent message we've received — used for ?since=
+  const lastTsRef  = useRef<string | null>(null);
 
   useEffect(() => {
     if (status === 'unauthenticated') router.replace('/login');
   }, [status, router]);
 
-  /* ── Track whether the user is scrolled to the bottom ── */
   const handleScroll = useCallback(() => {
     const el = scrollRef.current;
     if (!el) return;
-    const threshold = 80; // px from bottom
-    const isBottom  = el.scrollHeight - el.scrollTop - el.clientHeight < threshold;
+    const isBottom = el.scrollHeight - el.scrollTop - el.clientHeight < 80;
     setAtBottom(isBottom);
     if (isBottom) setNewCount(0);
   }, []);
 
-  /* ── Load conversation + messages; start poll ── */
   useEffect(() => {
     if (status !== 'authenticated') return;
 
-    // Load conversation meta
+    // ── Load conversation metadata (one-time) ─────────────────────────────
     fetch('/api/conversations')
       .then((r) => r.json())
       .then((d: IConversation[]) => {
@@ -67,44 +64,61 @@ export default function ChatPage() {
         setConvo(found);
       });
 
-    const loadMsgs = async () => {
+    // ── Initial full load (no ?since=) ────────────────────────────────────
+    const initialLoad = async () => {
       const res  = await fetch(`/api/conversations/${id}/messages`);
       const data = await res.json() as IMessage[];
       if (!Array.isArray(data)) return;
+      setMessages(data);
+      if (data.length > 0) lastTsRef.current = data[data.length - 1].createdAt;
+      setLoading(false);
+    };
+
+    // ── Incremental poll — only fetch messages newer than lastTsRef ───────
+    const poll = async () => {
+      const since = lastTsRef.current;
+      const url   = since
+        ? `/api/conversations/${id}/messages?since=${encodeURIComponent(since)}`
+        : `/api/conversations/${id}/messages`;
+
+      const res  = await fetch(url);
+      const data = await res.json() as IMessage[];
+      if (!Array.isArray(data) || data.length === 0) return;
+
+      // Update lastTs to the newest message we just received
+      lastTsRef.current = data[data.length - 1].createdAt;
 
       setMessages((prev) => {
-        const incoming = data.length - prevLen.current;
-        if (incoming > 0 && prevLen.current > 0) {
-          // Check if user is NOT at bottom — if so, show notification
-          const el = scrollRef.current;
-          const isAtBottom = el
-            ? el.scrollHeight - el.scrollTop - el.clientHeight < 80
-            : true;
-          if (!isAtBottom) setNewCount((n) => n + incoming);
-        }
-        prevLen.current = data.length;
-        return data;
+        // Deduplicate by _id in case of any overlap
+        const existingIds = new Set(prev.map((m) => m._id));
+        const fresh = data.filter((m) => !existingIds.has(m._id));
+        if (fresh.length === 0) return prev;
+
+        // Show scroll notification if user is scrolled up
+        const el = scrollRef.current;
+        const isAtBottom = el ? el.scrollHeight - el.scrollTop - el.clientHeight < 80 : true;
+        if (!isAtBottom) setNewCount((n) => n + fresh.length);
+
+        return [...prev, ...fresh];
       });
     };
 
-    void loadMsgs().then(() => setLoading(false));
-    pollRef.current = setInterval(() => { void loadMsgs(); }, 3000);
+    void initialLoad();
+    pollRef.current = setInterval(() => { void poll(); }, 3000);
     return () => { if (pollRef.current) clearInterval(pollRef.current); };
   }, [status, id]);
 
-  /* ── Auto-scroll only when user is already at bottom ── */
+  // Auto-scroll to bottom when user is already there
   useEffect(() => {
     if (atBottom) bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages, atBottom]);
 
-  /* ── Scroll to bottom + clear notification ── */
   const scrollToBottom = () => {
     bottomRef.current?.scrollIntoView({ behavior: 'smooth' });
     setNewCount(0);
     setAtBottom(true);
   };
 
-  /* ── Send message ── */
   const sendMessage = async () => {
     const content = text.trim();
     if (!content || sending) return;
@@ -117,11 +131,14 @@ export default function ChatPage() {
       });
       const msg = await res.json() as IMessage & { error?: string };
       if (res.ok) {
-        setMessages((prev) => { prevLen.current = prev.length + 1; return [...prev, msg]; });
-        // Always scroll down after your own message
+        lastTsRef.current = msg.createdAt;
+        setMessages((prev) => {
+          const exists = prev.some((m) => m._id === msg._id);
+          return exists ? prev : [...prev, msg];
+        });
         setTimeout(() => bottomRef.current?.scrollIntoView({ behavior: 'smooth' }), 60);
       } else {
-        setText(content); // restore on error
+        setText(content);
       }
     } finally { setSending(false); }
   };
@@ -135,8 +152,8 @@ export default function ChatPage() {
   if (notFound)
     return <p style={{ padding: 40 }}>Conversation not found. <Link href="/chat">← Back</Link></p>;
 
-  const myId  = session?.user?.id ?? '';
-  const other = convo?.participants.find((p: IConversationParticipant) => p._id !== myId);
+  const myId     = session?.user?.id ?? '';
+  const other    = convo?.participants.find((p: IConversationParticipant) => p._id !== myId);
   const jobTitle = convo?.jobId ? (convo.jobId as { title?: string }).title : null;
 
   let lastDate = '';
@@ -148,7 +165,7 @@ export default function ChatPage() {
       </div>
 
       <div className="chat-layout">
-        {/* ── Header ── */}
+        {/* Header */}
         <div className="chat-header">
           <div className="chat-header-info">
             <div className="chat-name">{other?.name ?? 'Unknown'}</div>
@@ -157,16 +174,12 @@ export default function ChatPage() {
               {jobTitle && <> &mdash; re: <strong>{jobTitle}</strong></>}
             </div>
           </div>
-          <span style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Refreshes every 3s</span>
+          <span style={{ fontSize: '0.72rem', color: '#9ca3af' }}>Refreshes every 3 s</span>
         </div>
 
-        {/* ── Messages + scroll-to-bottom notification ── */}
+        {/* Messages */}
         <div className="chat-messages-wrap">
-          <div
-            className="chat-messages"
-            ref={scrollRef}
-            onScroll={handleScroll}
-          >
+          <div className="chat-messages" ref={scrollRef} onScroll={handleScroll}>
             {messages.length === 0 && (
               <p style={{ textAlign: 'center', color: '#9ca3af', fontSize: '0.85rem', marginTop: 24 }}>
                 No messages yet. Say hello!
@@ -174,8 +187,8 @@ export default function ChatPage() {
             )}
 
             {messages.map((msg) => {
-              const senderId  = typeof msg.senderId === 'object' ? msg.senderId._id : msg.senderId;
-              const isMine    = senderId === myId;
+              const senderId   = typeof msg.senderId === 'object' ? msg.senderId._id : msg.senderId;
+              const isMine     = senderId === myId;
               const senderName = typeof msg.senderId === 'object' ? msg.senderId.name : '';
               const dateLabel  = formatDate(msg.createdAt);
               const showDate   = dateLabel !== lastDate;
@@ -188,8 +201,6 @@ export default function ChatPage() {
                       {dateLabel}
                     </div>
                   )}
-
-                  {/* ── FIX: msg-outer caps max-width; msg-bubble shrinks to content ── */}
                   <div className={`msg-row ${isMine ? 'mine' : 'theirs'}`}>
                     <div className="msg-outer">
                       {!isMine && senderName && (
@@ -208,7 +219,7 @@ export default function ChatPage() {
             <div ref={bottomRef} />
           </div>
 
-          {/* ── Scroll-to-bottom notification ── */}
+          {/* Scroll-to-bottom pill */}
           {newCount > 0 && !atBottom && (
             <button className="scroll-to-bottom-btn" onClick={scrollToBottom}>
               ↓ {newCount} new message{newCount > 1 ? 's' : ''}
@@ -216,7 +227,7 @@ export default function ChatPage() {
           )}
         </div>
 
-        {/* ── Input bar ── */}
+        {/* Input */}
         <div className="chat-input-bar">
           <textarea
             value={text}

@@ -2,26 +2,38 @@
 import { useEffect, useState } from 'react';
 import Link                    from 'next/link';
 import { useSession }          from 'next-auth/react';
+import { usePathname }         from 'next/navigation';
 import ProfileMenu             from './ProfileMenu';
 
 export default function Navbar() {
   const { data: session } = useSession();
+  const pathname          = usePathname();
   const [unread, setUnread] = useState(0);
 
-  // Poll for unread messages every 10 seconds while logged in
+  // If the user is currently inside a chat conversation, they're actively reading it
+  // → zero out the dot immediately so it doesn't stay red while they're reading.
+  const onChatPage = pathname?.startsWith('/chat/') ?? false;
+
+  useEffect(() => {
+    if (onChatPage) setUnread(0);
+  }, [onChatPage]);
+
+  // Poll for unread count every 15 s (only when not actively on a chat page)
   useEffect(() => {
     if (!session) return;
 
-    const fetchUnread = () =>
+    const fetchUnread = () => {
+      if (onChatPage) { setUnread(0); return; }
       fetch('/api/conversations/unread')
         .then((r) => r.json())
         .then((d: { count?: number }) => setUnread(d.count ?? 0))
-        .catch(() => { /* ignore network hiccups */ });
+        .catch(() => { /* ignore */ });
+    };
 
-    void fetchUnread();
-    const id = setInterval(() => { void fetchUnread(); }, 10_000);
+    fetchUnread();
+    const id = setInterval(fetchUnread, 15_000);
     return () => clearInterval(id);
-  }, [session]);
+  }, [session, onChatPage]);
 
   return (
     <nav className="navbar">
@@ -33,10 +45,11 @@ export default function Navbar() {
               <>
                 <Link href="/jobs">Browse Jobs</Link>
 
-                {/* Messages link with red dot if there are unread messages */}
                 <Link href="/chat" className="nav-msg-wrap">
                   Messages
-                  {unread > 0 && <span className="nav-unread-dot" title={`${unread} unread`} />}
+                  {unread > 0 && !onChatPage && (
+                    <span className="nav-unread-dot" title={`${unread} unread`} />
+                  )}
                 </Link>
 
                 <Link href="/reviews">Reviews</Link>

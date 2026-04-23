@@ -8,7 +8,15 @@ import mongoose from 'mongoose';
 
 interface Ctx { params: { id: string } }
 
-export async function GET(_req: NextRequest, { params }: Ctx): Promise<NextResponse> {
+/**
+ * GET /api/conversations/[id]/messages
+ *   ?since=<ISO date>  → only return messages AFTER that timestamp (for polling)
+ *   (no param)         → return all messages (initial load)
+ *
+ * Also marks all incoming messages (senderId ≠ you) as read — awaited so the
+ * unread count is accurate by the time the Navbar polls next.
+ */
+export async function GET(req: NextRequest, { params }: Ctx): Promise<NextResponse> {
   try {
     const session = await getServerSession(authOptions);
     if (!session) return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
@@ -16,19 +24,31 @@ export async function GET(_req: NextRequest, { params }: Ctx): Promise<NextRespo
     await connectDB();
     const userId = new mongoose.Types.ObjectId(session.user.id);
 
-    // Ensure user is a participant
-    const convo = await Conversation.findOne({ _id: params.id, participants: userId });
+    const convo = await Conversation.findOne({ _id: params.id, participants: userId }, '_id');
     if (!convo) return NextResponse.json({ error: 'Conversation not found.' }, { status: 404 });
 
+    // Build query — optionally filter by `since` for incremental polling
+    const { searchParams } = new URL(req.url);
+    const since = searchParams.get('since');
+    const msgFilter: Record<string, unknown> = { conversationId: params.id };
+    if (since) {
+      const sinceDate = new Date(since);
+      if (!isNaN(sinceDate.getTime())) msgFilter.createdAt = { $gt: sinceDate };
+    }
+
     const messages = await Message
-      .find({ conversationId: params.id })
+      .find(msgFilter)
       .populate('senderId', 'name')
       .sort({ createdAt: 1 })
       .lean();
 
-    // Mark all messages NOT sent by current user as read (fire-and-forget, non-blocking)
-    void Message.updateMany(
-      { conversationId: params.id, senderId: { $ne: userId }, readBy: { $ne: userId } },
+    // ── Mark as read — AWAITED so the count is accurate on next Navbar poll ──
+    await Message.updateMany(
+      {
+        conversationId: params.id,
+        senderId:       { $ne:   userId },
+        readBy:         { $nin:  [userId] },  // $nin is explicit for array membership
+      },
       { $addToSet: { readBy: userId } }
     );
 
@@ -53,21 +73,21 @@ export async function POST(req: NextRequest, { params }: Ctx): Promise<NextRespo
 
     await connectDB();
     const userId = new mongoose.Types.ObjectId(session.user.id);
-    const convo  = await Conversation.findOne({ _id: params.id, participants: userId });
+    const convo  = await Conversation.findOne({ _id: params.id, participants: userId }, '_id');
     if (!convo) return NextResponse.json({ error: 'Conversation not found.' }, { status: 404 });
 
-    // Sender is always considered to have read their own message
     const msg = await Message.create({
       conversationId: params.id,
       senderId:       session.user.id,
       content:        content.trim(),
-      readBy:         [session.user.id],
+      readBy:         [session.user.id],   // sender always "reads" their own message
     });
 
     const preview = content.trim().slice(0, 60) + (content.trim().length > 60 ? '…' : '');
-    convo.lastMessagePreview = preview;
-    convo.lastMessageAt      = new Date();
-    await convo.save();
+    await Conversation.updateOne(
+      { _id: params.id },
+      { lastMessagePreview: preview, lastMessageAt: new Date() }
+    );
 
     await msg.populate('senderId', 'name');
     return NextResponse.json(JSON.parse(JSON.stringify(msg)), { status: 201 });
