@@ -1,559 +1,313 @@
 'use client';
-import { useState, useEffect }        from 'react';
-import { useSession }                  from 'next-auth/react';
-import { useRouter }                   from 'next/navigation';
-import JobCard                         from '@/components/JobCard';
-import type { IJob, IApplication }     from '@/types';
+
+import { useState, useEffect } from 'react';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import { 
+  Search, 
+  MapPin, 
+  Briefcase, 
+  Filter, 
+  X, 
+  ChevronDown, 
+  CheckCircle2, 
+  AlertCircle,
+  Loader2,
+  LayoutGrid,
+  Zap
+} from 'lucide-react';
+import JobCard from '@/components/JobCard';
+import type { IJob, IApplication } from '@/types';
 
 const JOB_TYPES = ['full-time', 'part-time', 'internship', 'contract', 'remote'];
-
-const TYPE_COLORS: Record<string, string> = {
-  'full-time':  '#1a1a2e',
-  'part-time':  '#16213e',
-  'internship': '#0f3460',
-  'contract':   '#533483',
-  'remote':     '#2b4162',
-};
+const PROFILES = ['Frontend', 'Backend', 'Full Stack', 'UI/UX Design', 'Marketing', 'Data Science', 'Mobile App'];
 
 export default function JobsPage() {
   const { data: session, status } = useSession();
   const router = useRouter();
-  const [jobs,       setJobs]       = useState<IJob[]>([]);
-  const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
-  const [search,     setSearch]     = useState('');
-  const [typeFilter, setTypeFilter] = useState('');
-  const [loading,    setLoading]    = useState(true);
-  const [msg,        setMsg]        = useState('');
-  const [sidebarOpen, setSidebarOpen] = useState(false);
 
-  useEffect(() => { if (status === 'unauthenticated') router.replace('/login'); }, [status, router]);
+  // State Management
+  const [jobs, setJobs] = useState<IJob[]>([]);
+  const [appliedIds, setAppliedIds] = useState<Set<string>>(new Set());
+  const [loading, setLoading] = useState(true);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [msg, setMsg] = useState({ text: '', type: '' });
+
+  // Filter States
+  const [search, setSearch] = useState('');
+  const [locationSearch, setLocationSearch] = useState('');
+  const [typeFilter, setTypeFilter] = useState('');
+  const [profileFilter, setProfileFilter] = useState('');
+
+  useEffect(() => {
+    if (status === 'unauthenticated') router.replace('/login');
+  }, [status, router]);
 
   useEffect(() => {
     if (status !== 'authenticated') return;
-    fetch('/api/jobs').then((r) => r.json()).then((d: IJob[]) => {
-      setJobs(Array.isArray(d) ? d : []);
-      setLoading(false);
-    });
-    if (session?.user?.role === 'student') {
-      fetch('/api/applications/student').then((r) => r.json()).then((d: IApplication[]) => {
-        if (Array.isArray(d))
-          setAppliedIds(new Set(d.map((a) => (typeof a.jobId === 'object' ? a.jobId._id : a.jobId))));
-      });
-    }
+    
+    const fetchData = async () => {
+      try {
+        const jobRes = await fetch('/api/jobs');
+        const jobData = await jobRes.json();
+        setJobs(Array.isArray(jobData) ? jobData : []);
+
+        if (session?.user?.role === 'student') {
+          const appRes = await fetch('/api/applications/student');
+          const appData = await appRes.json();
+          if (Array.isArray(appData)) {
+            setAppliedIds(new Set(appData.map((a) => 
+              typeof a.jobId === 'object' ? a.jobId._id : a.jobId
+            )));
+          }
+        }
+      } catch (err) {
+        console.error("Failed to fetch data", err);
+      } finally {
+        setLoading(false);
+      }
+    };
+    fetchData();
   }, [status, session]);
 
   const handleApply = async (jobId: string) => {
-    setMsg('');
-    const res  = await fetch('/api/applications', {
-      method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ jobId }),
+    setMsg({ text: '', type: '' });
+    const res = await fetch('/api/applications', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ jobId }),
     });
     const data = await res.json() as { error?: string };
-    if (!res.ok) { setMsg(data.error ?? 'Error applying.'); return; }
+
+    if (!res.ok) {
+      setMsg({ text: data.error ?? 'Error applying.', type: 'error' });
+      return;
+    }
+
     setAppliedIds((prev) => new Set([...Array.from(prev), jobId]));
-    setMsg('Applied successfully!');
-    setTimeout(() => setMsg(''), 3000);
+    setMsg({ text: 'Applied successfully!', type: 'success' });
+    setTimeout(() => setMsg({ text: '', type: '' }), 3000);
   };
 
+  // Filter Logic
   const displayed = jobs.filter((j) => {
     const q = search.toLowerCase();
-    const matchSearch = !q || j.title.toLowerCase().includes(q) ||
-      j.companyName.toLowerCase().includes(q) || j.location.toLowerCase().includes(q);
-    return matchSearch && (!typeFilter || j.jobType === typeFilter);
+    const locQ = locationSearch.toLowerCase();
+    
+    const matchSearch = !q || j.title.toLowerCase().includes(q) || j.companyName.toLowerCase().includes(q);
+    const matchLocation = !locQ || j.location.toLowerCase().includes(locQ);
+    const matchType = !typeFilter || j.jobType === typeFilter;
+    const matchProfile = !profileFilter || j.title.toLowerCase().includes(profileFilter.toLowerCase());
+
+    return matchSearch && matchLocation && matchType && matchProfile;
   });
 
-  const typeCounts = JOB_TYPES.reduce<Record<string, number>>((acc, t) => {
-    acc[t] = jobs.filter((j) => j.jobType === t).length;
-    return acc;
-  }, {});
-
-  if (status === 'loading' || loading) {
+  if (loading) {
     return (
-      <div style={styles.loadingWrap}>
-        <div style={styles.loadingDots}>
-          <span style={{ ...styles.dot, animationDelay: '0s' }} />
-          <span style={{ ...styles.dot, animationDelay: '0.18s' }} />
-          <span style={{ ...styles.dot, animationDelay: '0.36s' }} />
-        </div>
-        <p style={styles.loadingText}>Fetching opportunities…</p>
-        <style>{dotAnim}</style>
+      <div className="flex flex-col items-center justify-center min-h-[80vh] gap-4">
+        <Loader2 className="w-10 h-10 text-blue-600 animate-spin" strokeWidth={1.5} />
+        <p className="text-gray-400 text-sm font-medium tracking-wide">Finding best roles for you...</p>
       </div>
     );
   }
 
   return (
-    <>
-      <style>{pageStyles}</style>
+    <div className="w-full max-w-7xl mx-auto bg-[#F8FAFC] flex font-sans">
+      
+      {/* ── Sidebar ── */}
+      <aside className={`
+        fixed inset-y-0 left-0 z-50 w-72 bg-white border-r border-gray-100 transform transition-transform duration-300 ease-in-out lg:relative lg:translate-x-0
+        ${sidebarOpen ? 'translate-x-0' : '-translate-x-full'}
+      `}>
+        <div className="p-8 h-full flex flex-col">
+          <div className="flex items-center gap-3 mb-10 text-blue-600">
+            <LayoutGrid size={22} strokeWidth={2.5} />
+            <span className="font-bold text-lg tracking-tight text-gray-900">Filter Jobs</span>
+          </div>
 
-      <div style={styles.root}>
-        {/* ── Sidebar ── */}
-        <aside style={{ ...styles.sidebar, ...(sidebarOpen ? styles.sidebarOpen : {}) }}>
-          <div style={styles.sidebarInner}>
-
-            <div style={styles.sidebarHeader}>
-              <span style={styles.sidebarLogo}>⬡</span>
-              <span style={styles.sidebarTitle}>Filters</span>
-            </div>
-
-            {/* Search */}
-            <div style={styles.filterSection}>
-              <label style={styles.filterLabel}>Search</label>
-              <div style={styles.searchWrap}>
-                <svg style={styles.searchIcon} viewBox="0 0 16 16" fill="none">
-                  <circle cx="6.5" cy="6.5" r="4.5" stroke="currentColor" strokeWidth="1.4"/>
-                  <path d="M10 10l3.5 3.5" stroke="currentColor" strokeWidth="1.4" strokeLinecap="round"/>
-                </svg>
+          <div className="space-y-8 flex-1">
+            {/* Keyword Search */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 block mb-3 italic">Keyword</label>
+              <div className="relative group">
+                <Search className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={15} />
                 <input
-                  placeholder="Title, company, location…"
+                  type="text"
+                  placeholder="Job title or company..."
+                  className="w-full bg-gray-50 border border-gray-100 rounded-xl py-2.5 pl-9 pr-4 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all placeholder:text-gray-300"
                   value={search}
                   onChange={(e) => setSearch(e.target.value)}
-                  style={styles.searchInput}
                 />
               </div>
             </div>
 
-            {/* Job Type */}
-            <div style={styles.filterSection}>
-              <label style={styles.filterLabel}>Job type</label>
-              <button
-                onClick={() => setTypeFilter('')}
-                style={{ ...styles.typeBtn, ...(typeFilter === '' ? styles.typeBtnActive : {}) }}
-              >
-                <span>All types</span>
-                <span style={styles.typeCount}>{jobs.length}</span>
-              </button>
-              {JOB_TYPES.map((t) => (
-                <button
-                  key={t}
-                  onClick={() => setTypeFilter(typeFilter === t ? '' : t)}
-                  style={{ ...styles.typeBtn, ...(typeFilter === t ? styles.typeBtnActive : {}) }}
-                >
-                  <span style={styles.typeDot(TYPE_COLORS[t])} />
-                  <span style={styles.typeName}>{t}</span>
-                  <span style={styles.typeCount}>{typeCounts[t] ?? 0}</span>
-                </button>
-              ))}
-            </div>
-
-            {/* Active filter chip */}
-            {(search || typeFilter) && (
-              <div style={styles.filterSection}>
-                <label style={styles.filterLabel}>Active filters</label>
-                <div style={styles.chipRow}>
-                  {search && (
-                    <button style={styles.chip} onClick={() => setSearch('')}>
-                      "{search}" ×
-                    </button>
-                  )}
-                  {typeFilter && (
-                    <button style={styles.chip} onClick={() => setTypeFilter('')}>
-                      {typeFilter} ×
-                    </button>
-                  )}
-                </div>
-              </div>
-            )}
-
-          </div>
-        </aside>
-
-        {/* ── Main ── */}
-        <main style={styles.main}>
-          <header style={styles.mainHeader}>
+            {/* Location Search */}
             <div>
-              <h1 style={styles.h1}>
-                {typeFilter
-                  ? <>{typeFilter.charAt(0).toUpperCase() + typeFilter.slice(1)} roles</>
-                  : <>All opportunities</>}
-              </h1>
-              <p style={styles.subtitle}>
-                {displayed.length} {displayed.length === 1 ? 'position' : 'positions'} available
-                {session?.user?.role === 'student' && appliedIds.size > 0 && (
-                  <> · <span style={styles.appliedBadge}>{appliedIds.size} applied</span></>
-                )}
-              </p>
+              <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 block mb-3 italic">Location</label>
+              <div className="relative group">
+                <MapPin className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 group-focus-within:text-blue-500 transition-colors" size={15} />
+                <input
+                  type="text"
+                  placeholder="City or 'Remote'..."
+                  className="w-full bg-gray-50 border border-gray-100 rounded-xl py-2.5 pl-9 pr-4 text-[13px] focus:outline-none focus:ring-2 focus:ring-blue-500/10 focus:border-blue-500 transition-all placeholder:text-gray-300"
+                  value={locationSearch}
+                  onChange={(e) => setLocationSearch(e.target.value)}
+                />
+              </div>
             </div>
-            {/* Mobile filter toggle */}
-            <button style={styles.mobileToggle} onClick={() => setSidebarOpen((p) => !p)}>
-              <svg viewBox="0 0 16 16" width="16" height="16" fill="none">
-                <path d="M2 4h12M4 8h8M6 12h4" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
-              </svg>
-              Filters
-            </button>
-          </header>
 
-          {msg && (
-            <div style={msg.includes('success') ? styles.alertSuccess : styles.alertError}>
-              {msg}
-            </div>
-          )}
-
-          {displayed.length === 0 ? (
-            <div style={styles.empty}>
-              <svg viewBox="0 0 48 48" width="40" height="40" fill="none" style={{ marginBottom: 12, opacity: 0.3 }}>
-                <circle cx="24" cy="24" r="20" stroke="currentColor" strokeWidth="2"/>
-                <path d="M16 24h16M24 16v16" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
-              </svg>
-              <p style={{ margin: 0 }}>No positions match your filters.</p>
-              <button style={styles.clearBtn} onClick={() => { setSearch(''); setTypeFilter(''); }}>
-                Clear filters
-              </button>
-            </div>
-          ) : (
-            <div style={styles.grid}>
-              {displayed.map((job, i) => (
-                <div
-                  key={job._id}
-                  style={{ ...styles.cardWrap, animationDelay: `${i * 40}ms` }}
-                  className="job-card-enter"
+            {/* Profile Dropdown */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 block mb-3 italic">Profile</label>
+              <div className="relative">
+                <select 
+                  value={profileFilter}
+                  onChange={(e) => setProfileFilter(e.target.value)}
+                  className="w-full bg-gray-50 border border-gray-100 rounded-xl py-2.5 px-4 text-[13px] text-gray-600 focus:outline-none focus:ring-2 focus:ring-blue-500/10 appearance-none cursor-pointer pr-10"
                 >
-                  <JobCard
-                    job={job}
-                    applied={appliedIds.has(job._id)}
-                    onApply={handleApply}
-                    isRecruiter={session?.user?.role === 'recruiter'}
-                  />
-                </div>
-              ))}
+                  <option value="">Any Profile</option>
+                  {PROFILES.map(p => <option key={p} value={p}>{p}</option>)}
+                </select>
+                <ChevronDown className="absolute right-3 top-1/2 -translate-y-1/2 text-gray-400 pointer-events-none" size={14} />
+              </div>
             </div>
-          )}
-        </main>
 
-        {/* Mobile overlay */}
-        {sidebarOpen && (
-          <div style={styles.overlay} onClick={() => setSidebarOpen(false)} />
+            {/* Job Type List */}
+            <div>
+              <label className="text-[10px] font-bold uppercase tracking-[0.1em] text-gray-400 block mb-3 italic">Employment Type</label>
+              <div className="space-y-1">
+                <button
+                  onClick={() => setTypeFilter('')}
+                  className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13px] transition-all ${
+                    typeFilter === '' ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-500 hover:bg-gray-50'
+                  }`}
+                >
+                  <span>All Types</span>
+                  <span className="text-[10px] opacity-60 font-medium">{jobs.length}</span>
+                </button>
+                {JOB_TYPES.map((type) => (
+                  <button
+                    key={type}
+                    onClick={() => setTypeFilter(type === typeFilter ? '' : type)}
+                    className={`w-full flex items-center justify-between px-3 py-2 rounded-lg text-[13px] capitalize transition-all ${
+                      typeFilter === type ? 'bg-blue-50 text-blue-700 font-bold' : 'text-gray-500 hover:bg-gray-50'
+                    }`}
+                  >
+                    <span>{type}</span>
+                    <span className="text-[10px] opacity-40">
+                      {jobs.filter(j => j.jobType === type).length}
+                    </span>
+                  </button>
+                ))}
+              </div>
+            </div>
+          </div>
+        </div>
+      </aside>
+
+      {/* ── Main Content ── */}
+      <main className="flex-1 p-6 md:p-10 lg:px-12 lg:py-10 overflow-y-auto">
+        
+        {/* Top Header */}
+        <header className="flex flex-col md:flex-row md:items-center justify-between gap-6 mb-10">
+          <div>
+            <div className="flex items-center gap-2 mb-1">
+              <Zap size={14} className="text-blue-600 fill-blue-600" />
+              <span className="text-[11px] font-bold text-blue-600 uppercase tracking-widest">Opportunities Portal</span>
+            </div>
+            <h1 className="text-2xl md:text-3xl font-extrabold text-gray-900 tracking-tight">
+              {profileFilter ? profileFilter : 'Latest'} <span className="text-blue-600 underline decoration-blue-100 underline-offset-4">Jobs</span>
+            </h1>
+          </div>
+
+          <div className="flex items-center gap-3">
+            <div className="hidden sm:flex items-center bg-white border border-gray-100 rounded-full px-4 py-1.5 shadow-sm">
+              <span className="text-[12px] font-bold text-gray-700">{displayed.length}</span>
+              <span className="text-[12px] text-gray-400 ml-1">Results Found</span>
+            </div>
+            <button 
+              onClick={() => setSidebarOpen(!sidebarOpen)}
+              className="lg:hidden flex items-center gap-2 bg-gray-900 text-white px-5 py-2.5 rounded-xl text-[13px] font-bold shadow-lg shadow-gray-200"
+            >
+              <Filter size={16} /> Filters
+            </button>
+          </div>
+        </header>
+
+        {/* Message Banner */}
+        {msg.text && (
+          <div className={`flex items-center gap-3 p-4 rounded-xl mb-8 animate-in fade-in slide-in-from-top-4 ${
+            msg.type === 'success' ? 'bg-green-50 text-green-700 border border-green-100' : 'bg-red-50 text-red-700 border border-red-100'
+          }`}>
+            {msg.type === 'success' ? <CheckCircle2 size={18} /> : <AlertCircle size={18} />}
+            <span className="text-sm font-bold">{msg.text}</span>
+          </div>
         )}
-      </div>
-    </>
+
+        {/* Active Chip Row */}
+        {(search || typeFilter || locationSearch || profileFilter) && (
+          <div className="flex flex-wrap gap-2 mb-8 items-center">
+            <span className="text-[11px] font-bold text-gray-400 mr-2">Active:</span>
+            {search && <Chip label={search} onClear={() => setSearch('')} />}
+            {locationSearch && <Chip label={locationSearch} onClear={() => setLocationSearch('')} />}
+            {typeFilter && <Chip label={typeFilter} onClear={() => setTypeFilter('')} />}
+            {profileFilter && <Chip label={profileFilter} onClear={() => setProfileFilter('')} />}
+            <button 
+              onClick={() => {setSearch(''); setLocationSearch(''); setTypeFilter(''); setProfileFilter('');}}
+              className="text-[11px] font-bold text-blue-600 hover:underline ml-2"
+            >
+              Reset All
+            </button>
+          </div>
+        )}
+
+        {/* Jobs Grid */}
+        {displayed.length === 0 ? (
+          <div className="flex flex-col items-center justify-center py-24 bg-white rounded-3xl border border-dashed border-gray-200">
+            <div className="p-5 bg-gray-50 rounded-full mb-4">
+              <Search className="text-gray-300 w-8 h-8" />
+            </div>
+            <p className="text-gray-400 text-sm font-medium">No positions match your preferences.</p>
+          </div>
+        ) : (
+          <div className="grid grid-cols-1 md:grid-cols-2 xl:grid-cols-2 2xl:grid-cols-3 gap-6">
+            {displayed.map((job, i) => (
+              <div 
+                key={job._id}
+                className="animate-in fade-in slide-in-from-bottom-4"
+                style={{ animationDelay: `${i * 40}ms`, animationFillMode: 'both' }}
+              >
+                <JobCard
+                  job={job}
+                  applied={appliedIds.has(job._id)}
+                  onApply={handleApply}
+                  isRecruiter={session?.user?.role === 'recruiter'}
+                />
+              </div>
+            ))}
+          </div>
+        )}
+      </main>
+
+      {/* Mobile Sidebar Overlay */}
+      {sidebarOpen && (
+        <div 
+          className="fixed inset-0 bg-black/20 backdrop-blur-sm z-40 lg:hidden"
+          onClick={() => setSidebarOpen(false)}
+        />
+      )}
+    </div>
   );
 }
 
-/* ─── Styles ─────────────────────────────────────────────────────────────── */
-
-const SIDEBAR_W = 240;
-const ACCENT    = '#5b4cdb';
-const ACCENT_BG = 'rgba(91,76,219,0.08)';
-
-const styles: Record<string, any> = {
-  root: {
-    display:       'flex',
-    minHeight:     '100vh',
-    background:    '#f7f7f8',
-    fontFamily:    "'DM Sans', 'Segoe UI', system-ui, sans-serif",
-  },
-
-  /* Sidebar */
-  sidebar: {
-    width:          SIDEBAR_W,
-    minWidth:       SIDEBAR_W,
-    background:     '#ffffff',
-    borderRight:    '1px solid #ebebeb',
-    position:       'sticky' as const,
-    top:            0,
-    height:         '100vh',
-    overflowY:      'auto' as const,
-    zIndex:         10,
-    transition:     'transform 0.25s ease',
-    '@media (max-width: 768px)': {
-      position: 'fixed',
-      transform: 'translateX(-100%)',
-    },
-  },
-  sidebarOpen: {
-    transform: 'translateX(0)',
-  },
-  sidebarInner: {
-    padding: '28px 20px',
-  },
-  sidebarHeader: {
-    display:        'flex',
-    alignItems:     'center',
-    gap:            8,
-    marginBottom:   32,
-  },
-  sidebarLogo: {
-    fontSize:       20,
-    color:          ACCENT,
-    lineHeight:     1,
-  },
-  sidebarTitle: {
-    fontSize:       13,
-    fontWeight:     600,
-    letterSpacing:  '0.08em',
-    textTransform:  'uppercase' as const,
-    color:          '#888',
-  },
-
-  /* Filter sections */
-  filterSection: {
-    marginBottom:   24,
-  },
-  filterLabel: {
-    display:        'block',
-    fontSize:       11,
-    fontWeight:     600,
-    letterSpacing:  '0.1em',
-    textTransform:  'uppercase' as const,
-    color:          '#aaa',
-    marginBottom:   8,
-  },
-
-  /* Search */
-  searchWrap: {
-    position:       'relative' as const,
-    display:        'flex',
-    alignItems:     'center',
-  },
-  searchIcon: {
-    position:       'absolute' as const,
-    left:           10,
-    width:          14,
-    height:         14,
-    color:          '#aaa',
-    pointerEvents:  'none' as const,
-  },
-  searchInput: {
-    width:          '100%',
-    padding:        '8px 10px 8px 32px',
-    border:         '1px solid #e5e5e5',
-    borderRadius:   8,
-    fontSize:       13,
-    color:          '#1a1a1a',
-    background:     '#fafafa',
-    outline:        'none',
-    boxSizing:      'border-box' as const,
-    transition:     'border-color 0.15s',
-  },
-
-  /* Type buttons */
-  typeBtn: {
-    display:        'flex',
-    alignItems:     'center',
-    width:          '100%',
-    padding:        '7px 10px',
-    border:         'none',
-    borderRadius:   7,
-    background:     'transparent',
-    cursor:         'pointer',
-    fontSize:       13,
-    color:          '#555',
-    marginBottom:   2,
-    transition:     'background 0.12s, color 0.12s',
-    textAlign:      'left' as const,
-  },
-  typeBtnActive: {
-    background:     ACCENT_BG,
-    color:          ACCENT,
-    fontWeight:     600,
-  },
-  typeName: {
-    flex:           1,
-    textTransform:  'capitalize' as const,
-  },
-  typeDot: (color: string) => ({
-    width:          7,
-    height:         7,
-    borderRadius:   '50%',
-    background:     color,
-    marginRight:    8,
-    flexShrink:     0,
-  }),
-  typeCount: {
-    fontSize:       11,
-    color:          '#bbb',
-    marginLeft:     'auto',
-  },
-
-  /* Chips */
-  chipRow: {
-    display:        'flex',
-    flexWrap:       'wrap' as const,
-    gap:            6,
-  },
-  chip: {
-    padding:        '4px 10px',
-    border:         `1px solid ${ACCENT}40`,
-    borderRadius:   20,
-    background:     ACCENT_BG,
-    color:          ACCENT,
-    fontSize:       12,
-    cursor:         'pointer',
-    fontWeight:     500,
-  },
-
-  /* Main area */
-  main: {
-    flex:           1,
-    padding:        '32px 36px',
-    minWidth:       0,
-  },
-  mainHeader: {
-    display:        'flex',
-    alignItems:     'flex-start',
-    justifyContent: 'space-between',
-    marginBottom:   28,
-    flexWrap:       'wrap' as const,
-    gap:            12,
-  },
-  h1: {
-    fontSize:       26,
-    fontWeight:     700,
-    color:          '#111',
-    margin:         0,
-    fontFamily:     "'DM Serif Display', Georgia, serif",
-    letterSpacing:  '-0.01em',
-  },
-  subtitle: {
-    fontSize:       14,
-    color:          '#888',
-    margin:         '4px 0 0',
-  },
-  appliedBadge: {
-    color:          '#16a34a',
-    fontWeight:     600,
-  },
-  mobileToggle: {
-    display:        'none',
-    alignItems:     'center',
-    gap:            6,
-    padding:        '7px 14px',
-    border:         '1px solid #e5e5e5',
-    borderRadius:   8,
-    background:     '#fff',
-    fontSize:       13,
-    cursor:         'pointer',
-    color:          '#555',
-    '@media (max-width: 768px)': { display: 'flex' },
-  },
-
-  /* Alerts */
-  alertSuccess: {
-    padding:        '10px 16px',
-    borderRadius:   8,
-    background:     '#f0fdf4',
-    border:         '1px solid #bbf7d0',
-    color:          '#15803d',
-    fontSize:       13,
-    marginBottom:   20,
-  },
-  alertError: {
-    padding:        '10px 16px',
-    borderRadius:   8,
-    background:     '#fef2f2',
-    border:         '1px solid #fecaca',
-    color:          '#b91c1c',
-    fontSize:       13,
-    marginBottom:   20,
-  },
-
-  /* Grid */
-  grid: {
-    display:              'grid',
-    gridTemplateColumns:  'repeat(auto-fill, minmax(320px, 1fr))',
-    gap:                  16,
-  },
-  cardWrap: {
-    animation:      'jobFadeIn 0.3s ease both',
-  },
-
-  /* Empty */
-  empty: {
-    display:        'flex',
-    flexDirection:  'column' as const,
-    alignItems:     'center',
-    justifyContent: 'center',
-    padding:        '80px 20px',
-    color:          '#999',
-    fontSize:       14,
-    textAlign:      'center' as const,
-  },
-  clearBtn: {
-    marginTop:      14,
-    padding:        '8px 18px',
-    border:         `1px solid ${ACCENT}`,
-    borderRadius:   8,
-    background:     'transparent',
-    color:          ACCENT,
-    fontSize:       13,
-    cursor:         'pointer',
-    fontWeight:     500,
-  },
-
-  /* Overlay */
-  overlay: {
-    display:        'none',
-    position:       'fixed' as const,
-    inset:          0,
-    background:     'rgba(0,0,0,0.3)',
-    zIndex:         9,
-    '@media (max-width: 768px)': { display: 'block' },
-  },
-
-  /* Loading */
-  loadingWrap: {
-    display:        'flex',
-    flexDirection:  'column' as const,
-    alignItems:     'center',
-    justifyContent: 'center',
-    height:         '60vh',
-    gap:            12,
-  },
-  loadingDots: {
-    display:        'flex',
-    gap:            6,
-  },
-  dot: {
-    width:          8,
-    height:         8,
-    borderRadius:   '50%',
-    background:     ACCENT,
-    display:        'inline-block',
-    animation:      'bounce 0.8s ease infinite',
-  },
-  loadingText: {
-    fontSize:       13,
-    color:          '#aaa',
-    margin:         0,
-  },
-};
-
-const pageStyles = `
-  @import url('https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700&family=DM+Serif+Display&display=swap');
-
-  * { box-sizing: border-box; }
-
-  @keyframes jobFadeIn {
-    from { opacity: 0; transform: translateY(10px); }
-    to   { opacity: 1; transform: translateY(0); }
-  }
-
-  input:focus {
-    border-color: #5b4cdb !important;
-    box-shadow: 0 0 0 3px rgba(91,76,219,0.12);
-  }
-
-  aside::-webkit-scrollbar { width: 4px; }
-  aside::-webkit-scrollbar-thumb { background: #e0e0e0; border-radius: 4px; }
-
-  @media (max-width: 768px) {
-    aside {
-      position: fixed !important;
-      transform: translateX(-100%);
-    }
-    .sidebar-open aside {
-      transform: translateX(0) !important;
-    }
-    .mobile-toggle {
-      display: flex !important;
-    }
-    .overlay-active {
-      display: block !important;
-    }
-  }
-`;
-
-const dotAnim = `
-  @keyframes bounce {
-    0%, 100% { transform: translateY(0); opacity: 0.4; }
-    50%       { transform: translateY(-6px); opacity: 1; }
-  }
-`;
+// ── Reusable Chip Component ──
+function Chip({ label, onClear }: { label: string, onClear: () => void }) {
+  return (
+    <div className="flex items-center gap-1.5 bg-white border border-gray-100 px-3 py-1.5 rounded-lg shadow-sm">
+      <span className="text-[11px] font-bold text-gray-700 capitalize">{label}</span>
+      <button onClick={onClear} className="text-gray-400 hover:text-red-500 transition-colors">
+        <X size={12} />
+      </button>
+    </div>
+  );
+}
