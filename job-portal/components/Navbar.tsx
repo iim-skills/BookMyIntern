@@ -10,15 +10,14 @@ export default function Navbar() {
   const pathname          = usePathname();
   const [unread, setUnread] = useState(0);
 
-  // If the user is currently inside a chat conversation, they're actively reading it
-  // → zero out the dot immediately so it doesn't stay red while they're reading.
+  // Zero the unread dot immediately when the user is inside a chat conversation.
   const onChatPage = pathname?.startsWith('/chat/') ?? false;
 
   useEffect(() => {
     if (onChatPage) setUnread(0);
   }, [onChatPage]);
 
-  // Poll for unread count every 15 s (only when not actively on a chat page)
+  // Poll for unread count every 15 s (skip while actively reading a chat).
   useEffect(() => {
     if (!session) return;
 
@@ -40,11 +39,15 @@ export default function Navbar() {
       <div className="container">
         <div className="navbar-inner">
           <Link href="/" className="navbar-brand">BookMyIntern</Link>
-          <div className="navbar-links">
-            {session ? (
-              <>
-                <Link href="/jobs">Browse Jobs</Link>
 
+          <div className="navbar-links">
+            {/* ── Links visible to EVERYONE (logged-in or not) ── */}
+            <Link href="/jobs">Browse Jobs</Link>
+            <Link href="/community-reviews">Community Reviews</Link>
+
+            {/* ── Links visible only when signed in ── */}
+            {session && (
+              <>
                 <Link href="/chat" className="nav-msg-wrap">
                   Messages
                   {unread > 0 && !onChatPage && (
@@ -52,10 +55,15 @@ export default function Navbar() {
                   )}
                 </Link>
 
-                <Link href="/reviews">Reviews</Link>
+                {/* /reviews now shows only "About Me" + "Write a Review" */}
+                <Link href="/reviews">My Reviews</Link>
+
                 <ProfileMenu />
               </>
-            ) : (
+            )}
+
+            {/* ── Auth links for guests ── */}
+            {!session && (
               <>
                 <Link href="/login">Login</Link>
                 <Link href="/signup">Sign Up</Link>
