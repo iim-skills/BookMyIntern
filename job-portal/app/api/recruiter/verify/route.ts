@@ -11,7 +11,11 @@ export async function GET(): Promise<NextResponse> {
       return NextResponse.json({ error: 'Unauthorized.' }, { status: 401 });
     await connectDB();
     const profile = await RecruiterProfile.findOne({ userId: session.user.id }).lean();
-    return NextResponse.json({ verified: !!profile, profile: profile ? JSON.parse(JSON.stringify(profile)) : null });
+    return NextResponse.json({
+      submitted:     !!profile,
+      adminVerified: profile ? !!(profile as { adminVerified?: boolean }).adminVerified : false,
+      profile:       profile ? JSON.parse(JSON.stringify(profile)) : null,
+    });
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Server error.' }, { status: 500 });
@@ -31,10 +35,11 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       return NextResponse.json({ error: 'firmName, designation and phone are required.' }, { status: 400 });
     await connectDB();
     const existing = await RecruiterProfile.findOne({ userId: session.user.id });
-    if (existing) return NextResponse.json({ error: 'Already verified.' }, { status: 409 });
+    if (existing) return NextResponse.json({ error: 'Already submitted.' }, { status: 409 });
     const profile = await RecruiterProfile.create({
-      userId: session.user.id,
-      firmName, firmWebsite: firmWebsite ?? '', designation, phone,
+      userId: session.user.id, firmName,
+      firmWebsite: firmWebsite ?? '', designation, phone,
+      adminVerified: false,
     });
     return NextResponse.json(JSON.parse(JSON.stringify(profile)), { status: 201 });
   } catch (err) {

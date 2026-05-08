@@ -18,11 +18,13 @@ export const authOptions: AuthOptions = {
         if (!user) throw new Error('No account found with this email.');
         const valid = await user.comparePassword(credentials.password);
         if (!valid) throw new Error('Incorrect password.');
+        if (user.role !== 'admin' && !user.emailVerified)
+          throw new Error('Please verify your email before signing in.');
         return {
           id:    user._id.toString(),
           name:  user.name  as string,
           email: user.email as string,
-          role:  user.role  as 'student' | 'recruiter',
+          role:  user.role  as 'student' | 'recruiter' | 'admin',
         };
       },
     }),

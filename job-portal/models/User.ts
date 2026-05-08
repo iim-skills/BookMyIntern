@@ -2,21 +2,22 @@ import mongoose, { Document, Model, Schema } from 'mongoose';
 import bcrypt from 'bcryptjs';
 
 export interface IUserDocument extends Document {
-  name:            string;
-  email:           string;
-  password:        string;
-  role:            'student' | 'recruiter';
-  createdAt:       Date;
-  updatedAt:       Date;
+  name: string; email: string; password: string;
+  role: 'student' | 'recruiter' | 'admin';
+  emailVerified: boolean; verificationToken: string | null; tokenExpiry: Date | null;
+  createdAt: Date; updatedAt: Date;
   comparePassword: (plain: string) => Promise<boolean>;
 }
 
 const UserSchema = new Schema<IUserDocument>(
   {
-    name:     { type: String, required: true, trim: true },
-    email:    { type: String, required: true, unique: true, lowercase: true },
-    password: { type: String, required: true },
-    role:     { type: String, enum: ['student', 'recruiter'], required: true },
+    name:              { type: String, required: true, trim: true },
+    email:             { type: String, required: true, unique: true, lowercase: true },
+    password:          { type: String, required: true },
+    role:              { type: String, enum: ['student', 'recruiter', 'admin'], required: true },
+    emailVerified:     { type: Boolean, default: false },
+    verificationToken: { type: String, default: null },
+    tokenExpiry:       { type: Date,   default: null },
   },
   { timestamps: true }
 );
@@ -26,10 +27,16 @@ UserSchema.pre<IUserDocument>('save', async function (next) {
   this.password = await bcrypt.hash(this.password, 10);
   next();
 });
-
 UserSchema.methods.comparePassword = function (plain: string): Promise<boolean> {
   return bcrypt.compare(plain, this.password);
 };
+
+// Bust stale hot-reload cache if 'admin' is missing from enum
+if (mongoose.models.User) {
+  const schema = (mongoose.models.User as mongoose.Model<IUserDocument>).schema;
+  const enums  = (schema.path('role') as mongoose.SchemaType & { enumValues?: string[] }).enumValues ?? [];
+  if (!enums.includes('admin')) delete mongoose.models.User;
+}
 
 const User: Model<IUserDocument> =
   mongoose.models.User || mongoose.model<IUserDocument>('User', UserSchema);

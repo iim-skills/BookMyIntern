@@ -28,13 +28,21 @@ export default function ProfileMenu() {
             {session.user.email}<br />
             <strong style={{ textTransform: 'capitalize' }}>{session.user.role}</strong>
           </div>
+          {session.user.role === 'admin' && (
+            <Link href="/admin/dashboard" onClick={() => setOpen(false)}>Admin Dashboard</Link>
+          )}
           {session.user.role === 'student' && (
             <Link href="/student/dashboard" onClick={() => setOpen(false)}>My Applications</Link>
           )}
           {session.user.role === 'recruiter' && (
             <Link href="/recruiter/dashboard" onClick={() => setOpen(false)}>Recruiter Dashboard</Link>
           )}
-          <Link href="/chat" onClick={() => setOpen(false)}>Messages</Link>
+          {session.user.role !== 'admin' && (
+            <>
+              <Link href="/chat"    onClick={() => setOpen(false)}>Messages</Link>
+              <Link href="/reviews" onClick={() => setOpen(false)}>My Reviews</Link>
+            </>
+          )}
           <button onClick={() => signOut({ callbackUrl: '/login' })}>Sign Out</button>
         </div>
       )}
