@@ -28,6 +28,8 @@ export default function ProfileMenu() {
             {session.user.email}<br />
             <strong style={{ textTransform: 'capitalize' }}>{session.user.role}</strong>
           </div>
+
+          {/* Role-specific dashboard links */}
           {session.user.role === 'admin' && (
             <Link href="/admin/dashboard" onClick={() => setOpen(false)}>Admin Dashboard</Link>
           )}
@@ -37,12 +39,20 @@ export default function ProfileMenu() {
           {session.user.role === 'recruiter' && (
             <Link href="/recruiter/dashboard" onClick={() => setOpen(false)}>Recruiter Dashboard</Link>
           )}
+
+          {/* My Profile — for student and recruiter */}
+          {session.user.role !== 'admin' && (
+            <Link href="/profile" onClick={() => setOpen(false)}>My Profile</Link>
+          )}
+
+          {/* Shared links */}
           {session.user.role !== 'admin' && (
             <>
               <Link href="/chat"    onClick={() => setOpen(false)}>Messages</Link>
               <Link href="/reviews" onClick={() => setOpen(false)}>My Reviews</Link>
             </>
           )}
+
           <button onClick={() => signOut({ callbackUrl: '/login' })}>Sign Out</button>
         </div>
       )}
