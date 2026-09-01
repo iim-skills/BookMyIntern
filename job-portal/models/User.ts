@@ -5,6 +5,15 @@ export interface IUserDocument extends Document {
   name: string; email: string; password: string;
   role: 'student' | 'recruiter' | 'admin';
   emailVerified: boolean; verificationToken: string | null; tokenExpiry: Date | null;
+  collegeName?: string;
+  graduationYear?: string;
+  currentYearOfStudy?: string;
+  twoFactorEnabled?: boolean;
+  twoFactorCode?: string | null;
+  twoFactorExpiry?: Date | null;
+  resetToken?: string | null;
+  resetTokenExpiry?: Date | null;
+  tokenVersion?: number;
   createdAt: Date; updatedAt: Date;
   comparePassword: (plain: string) => Promise<boolean>;
 }
@@ -18,6 +27,15 @@ const UserSchema = new Schema<IUserDocument>(
     emailVerified:     { type: Boolean, default: false },
     verificationToken: { type: String, default: null },
     tokenExpiry:       { type: Date,   default: null },
+    collegeName:       { type: String, default: '' },
+    graduationYear:    { type: String, default: '' },
+    currentYearOfStudy:{ type: String, default: '' },
+    twoFactorEnabled:  { type: Boolean, default: false },
+    twoFactorCode:     { type: String, default: null },
+    twoFactorExpiry:   { type: Date,   default: null },
+    resetToken:        { type: String, default: null },
+    resetTokenExpiry:  { type: Date,   default: null },
+    tokenVersion:      { type: Number, default: 0 },
   },
   { timestamps: true }
 );
@@ -31,11 +49,12 @@ UserSchema.methods.comparePassword = function (plain: string): Promise<boolean> 
   return bcrypt.compare(plain, this.password);
 };
 
-// Bust stale hot-reload cache if 'admin' is missing from enum
+// Bust stale hot-reload cache if 'collegeName' is missing from schema
 if (mongoose.models.User) {
-  const schema = (mongoose.models.User as mongoose.Model<IUserDocument>).schema;
-  const enums  = (schema.path('role') as mongoose.SchemaType & { enumValues?: string[] }).enumValues ?? [];
-  if (!enums.includes('admin')) delete mongoose.models.User;
+  const paths = Object.keys((mongoose.models.User as mongoose.Model<IUserDocument>).schema.paths);
+  if (!paths.includes('collegeName') || !paths.includes('twoFactorEnabled')) {
+    delete mongoose.models.User;
+  }
 }
 
 const User: Model<IUserDocument> =

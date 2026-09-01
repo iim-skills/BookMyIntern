@@ -73,7 +73,7 @@ export async function POST(req: NextRequest, { params }: Ctx): Promise<NextRespo
 
     await connectDB();
     const userId = new mongoose.Types.ObjectId(session.user.id);
-    const convo  = await Conversation.findOne({ _id: params.id, participants: userId }, '_id');
+    const convo  = await Conversation.findOne({ _id: params.id, participants: userId }, '_id participants');
     if (!convo) return NextResponse.json({ error: 'Conversation not found.' }, { status: 404 });
 
     const msg = await Message.create({
@@ -88,6 +88,29 @@ export async function POST(req: NextRequest, { params }: Ctx): Promise<NextRespo
       { _id: params.id },
       { lastMessagePreview: preview, lastMessageAt: new Date() }
     );
+
+    // ── Dispatch message in-app notification ────────────────────────────
+    try {
+      const otherUserId = convo.participants.find((p) => p.toString() !== session.user.id);
+      if (otherUserId) {
+        const NotificationModel = require('@/models/Notification').default;
+        const existingNotification = await NotificationModel.findOne({
+          userId: otherUserId,
+          type: 'message',
+          read: false
+        });
+        if (!existingNotification) {
+          await NotificationModel.create({
+            userId: otherUserId,
+            title: 'New Message',
+            message: `You have received a new message from ${session.user.name}.`,
+            type: 'message',
+          });
+        }
+      }
+    } catch (notifyErr) {
+      console.error('Failed to create message notification:', notifyErr);
+    }
 
     await msg.populate('senderId', 'name');
     return NextResponse.json(JSON.parse(JSON.stringify(msg)), { status: 201 });

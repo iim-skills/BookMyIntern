@@ -5,6 +5,7 @@ import { connectDB } from '@/lib/db';
 import Review from '@/models/Review';
 import Application from '@/models/Application';
 import Job from '@/models/Job';           // static — no more dynamic import()
+import RecruiterProfile from '@/models/RecruiterProfile';
 import mongoose from 'mongoose';
 
 /**
@@ -38,7 +39,35 @@ export async function GET(req: NextRequest): Promise<NextResponse> {
       .limit(200)          // safety cap for community feed
       .lean();
 
-    return NextResponse.json(JSON.parse(JSON.stringify(reviews)));
+    // Fetch recruiter profiles to obtain firmName as companyName fallback
+    const recruiterIds = new Set<string>();
+    reviews.forEach((r: any) => {
+      if (r.reviewerRole === 'recruiter' && r.reviewerId) {
+        recruiterIds.add(typeof r.reviewerId === 'object' ? r.reviewerId._id.toString() : r.reviewerId.toString());
+      } else if (r.reviewerRole === 'student' && r.revieweeId) {
+        recruiterIds.add(typeof r.revieweeId === 'object' ? r.revieweeId._id.toString() : r.revieweeId.toString());
+      }
+    });
+
+    const profiles = await RecruiterProfile.find({
+      userId: { $in: Array.from(recruiterIds).map(id => new mongoose.Types.ObjectId(id)) }
+    }, 'userId firmName').lean();
+
+    const profileMap = new Map(profiles.map(p => [p.userId.toString(), p.firmName]));
+
+    const reviewsWithCompany = reviews.map((r: any) => {
+      const recId = r.reviewerRole === 'recruiter'
+        ? (typeof r.reviewerId === 'object' ? r.reviewerId._id.toString() : r.reviewerId.toString())
+        : (typeof r.revieweeId === 'object' ? r.revieweeId._id.toString() : r.revieweeId.toString());
+      
+      const firmName = profileMap.get(recId) || null;
+      return {
+        ...r,
+        companyName: firmName
+      };
+    });
+
+    return NextResponse.json(JSON.parse(JSON.stringify(reviewsWithCompany)));
   } catch (err) {
     console.error(err);
     return NextResponse.json({ error: 'Server error.' }, { status: 500 });
@@ -143,6 +172,20 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
     await review.populate('reviewerId', 'name role');
     await review.populate('revieweeId', 'name role');
     await review.populate('jobId',      'title companyName');
+
+    // ── Dispatch review in-app notification ────────────────────────────
+    try {
+      const NotificationModel = require('@/models/Notification').default;
+      await NotificationModel.create({
+        userId: revieweeId,
+        title: 'New Review Received',
+        message: `${session.user.name} submitted a ${rating}-star review for you.`,
+        type: 'review',
+      });
+    } catch (notifyErr) {
+      console.error('Failed to create review notification:', notifyErr);
+    }
+
     return NextResponse.json(JSON.parse(JSON.stringify(review)), { status: 201 });
   } catch (err: unknown) {
     console.error(err);

@@ -6,11 +6,11 @@ export default withAuth(
     const token    = req.nextauth.token;
     const { pathname } = req.nextUrl;
     if (pathname.startsWith('/admin')     && token?.role !== 'admin')
-      return NextResponse.redirect(new URL('/jobs', req.url));
+      return NextResponse.redirect(new URL('/', req.url));
     if (pathname.startsWith('/student')   && token?.role !== 'student')
-      return NextResponse.redirect(new URL('/jobs', req.url));
+      return NextResponse.redirect(new URL('/', req.url));
     if (pathname.startsWith('/recruiter') && token?.role !== 'recruiter')
-      return NextResponse.redirect(new URL('/jobs', req.url));
+      return NextResponse.redirect(new URL('/', req.url));
     return NextResponse.next();
   },
   { callbacks: { authorized: ({ token }) => !!token } }

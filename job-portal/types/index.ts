@@ -7,6 +7,8 @@ export interface IJob {
   _id: string; recruiterId: string; companyName: string; title: string;
   description: string; location: string; jobType: JobType; salary: string;
   skills: string[]; deadline: string; eligibility: string;
+  stipendAmount?: number; durationWeeks?: number; ppoPossibility?: boolean;
+  internCertificate?: boolean; views?: number;
   createdAt: string; updatedAt: string;
 }
 
@@ -28,6 +30,8 @@ export interface IRecruiterProfile {
 export interface JobFormData {
   companyName: string; title: string; description: string; location: string;
   jobType: JobType | ''; salary: string; skills: string; deadline: string; eligibility: string;
+  stipendAmount?: number; durationWeeks?: number; ppoPossibility?: boolean;
+  internCertificate?: boolean;
 }
 
 export interface IConversationParticipant {

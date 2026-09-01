@@ -164,6 +164,19 @@ export async function POST(req: NextRequest): Promise<NextResponse> {
       resumeFilename,
     });
 
+    // ── Dispatch recruiter in-app notification ────────────────────────────
+    try {
+      const NotificationModel = require('@/models/Notification').default;
+      await NotificationModel.create({
+        userId: job.recruiterId,
+        title: 'New Job Application',
+        message: `${session.user.name} applied for "${job.title}".`,
+        type: 'application',
+      });
+    } catch (notifyErr) {
+      console.error('Failed to create recruiter application notification:', notifyErr);
+    }
+
     return NextResponse.json(
       JSON.parse(JSON.stringify(app)),
       { status: 201 }

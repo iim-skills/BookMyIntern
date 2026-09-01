@@ -1,30 +1,39 @@
 # dependencies
-
 /node_modules
 
 # next.js
-
 /.next/
 /out/
 
 # production
-
 /build
 
-# misc
+# documentation & prompts (keep locally only)
+*.md
+BookMyIntern_Documentation.md
+BookMyIntern_Frontend_Revamp_MasterPrompt.md
+BookMyIntern_Pages_Index.md
+README.md
 
+# uploaded student resumes (keep locally only)
+public/resumes/*
+!public/resumes/.gitkeep
+
+# legacy & unused build files
+tailwind.config.js
+
+# misc & OS
 .DS_Store
 *.pem
+Thumbs.db
 
 # logs
-
 npm-debug.log*
 yarn-debug.log*
 yarn-error.log*
 pnpm-debug.log*
 
 # env files
-
 .env
 .env.local
 .env.development.local
@@ -32,15 +41,11 @@ pnpm-debug.log*
 .env.production.local
 
 # typescript
-
 *.tsbuildinfo
 next-env.d.ts
 
 # IDE / editor
-
 .vscode/
 .idea/
+.agent/
 
-# OS files
-
-Thumbs.db

@@ -1,294 +1,527 @@
 'use client';
+
 import { useState, useEffect, useCallback } from 'react';
-import { useSession }  from 'next-auth/react';
-import { useRouter }   from 'next/navigation';
+import { useSession } from 'next-auth/react';
+import { useRouter } from 'next/navigation';
+import AuthenticatedLayout from '@/components/ui/AuthenticatedLayout';
+import KPICard from '@/components/ui/KPICard';
+import StatusBadge from '@/components/ui/StatusBadge';
+import StarRating from '@/components/ui/StarRating';
+import Button from '@/components/ui/Button';
 import type { IRecruiterProfile, IReview, IJob, IApplication } from '@/types';
+import { Link } from 'lucide-react';
 
 type Tab = 'recruiters' | 'reviews' | 'jobs' | 'applications';
 
 async function adminDelete(url: string): Promise<{ ok: boolean; error?: string }> {
-  const res  = await fetch(url, { method: 'DELETE' });
+  const res = await fetch(url, { method: 'DELETE' });
   const data = await res.json() as { ok?: boolean; error?: string };
   return { ok: res.ok, error: data.error };
-}
-
-function Stars({ rating }: { rating: number }) {
-  return (
-    <span>
-      {[1,2,3,4,5].map((n) => (
-        <span key={n} style={{ color: n <= rating ? '#f59e0b' : '#d1d5db', fontSize: '0.85rem' }}>★</span>
-      ))}
-    </span>
-  );
 }
 
 export default function AdminDashboard() {
   const { data: session, status } = useSession();
   const router = useRouter();
 
-  const [tab,          setTab]         = useState<Tab>('recruiters');
-  const [recruiters,   setRecruiters]  = useState<IRecruiterProfile[]>([]);
-  const [reviews,      setReviews]     = useState<IReview[]>([]);
-  const [jobs,         setJobs]        = useState<IJob[]>([]);
-  const [applications, setApplications]= useState<IApplication[]>([]);
-  const [loading,      setLoading]     = useState(false);
-  const [flash,        setFlash]       = useState('');
+  const [tab, setTab] = useState<Tab>('recruiters');
+  const [recruiters, setRecruiters] = useState<IRecruiterProfile[]>([]);
+  const [reviews, setReviews] = useState<IReview[]>([]);
+  const [jobs, setJobs] = useState<IJob[]>([]);
+  const [applications, setApplications] = useState<IApplication[]>([]);
+  const [loading, setLoading] = useState(false);
+  const [flash, setFlash] = useState('');
 
-  const showFlash = (msg: string) => { setFlash(msg); setTimeout(() => setFlash(''), 3000); };
+  const showFlash = (msg: string) => {
+    setFlash(msg);
+    setTimeout(() => setFlash(''), 3000);
+  };
 
-  useEffect(() => {
-    if (status === 'unauthenticated') router.replace('/login');
-    if (status === 'authenticated' && session.user.role !== 'admin') router.replace('/jobs');
-  }, [status, session, router]);
-
-  const loadTab = useCallback(async (t: Tab) => {
+  const loadAll = useCallback(async () => {
     setLoading(true);
     try {
-      const urls: Record<Tab, string> = {
-        recruiters:   '/api/admin/recruiters',
-        reviews:      '/api/admin/reviews',
-        jobs:         '/api/admin/jobs',
-        applications: '/api/admin/applications',
-      };
-      const res  = await fetch(urls[t]);
-      const data = await res.json();
-      if (t === 'recruiters')   setRecruiters(Array.isArray(data) ? data : []);
-      if (t === 'reviews')      setReviews(Array.isArray(data) ? data : []);
-      if (t === 'jobs')         setJobs(Array.isArray(data) ? data : []);
-      if (t === 'applications') setApplications(Array.isArray(data) ? data : []);
-    } finally { setLoading(false); }
+      const [rRes, revRes, jRes, aRes] = await Promise.all([
+        fetch('/api/admin/recruiters'),
+        fetch('/api/admin/reviews'),
+        fetch('/api/admin/jobs'),
+        fetch('/api/admin/applications'),
+      ]);
+      const rData = await rRes.json();
+      const revData = await revRes.json();
+      const jData = await jRes.json();
+      const aData = await aRes.json();
+      setRecruiters(Array.isArray(rData) ? rData : []);
+      setReviews(Array.isArray(revData) ? revData : []);
+      setJobs(Array.isArray(jData) ? jData : []);
+      setApplications(Array.isArray(aData) ? aData : []);
+    } catch (err) {
+      console.error('Failed to load admin metrics:', err);
+    } finally {
+      setLoading(false);
+    }
   }, []);
 
   useEffect(() => {
-    if (status === 'authenticated') void loadTab(tab);
-  }, [tab, status, loadTab]);
+    if (status === 'authenticated') void loadAll();
+  }, [status, loadAll]);
 
-  if (status === 'loading')
-    return <p style={{ padding: 40, textAlign: 'center', color: '#9ca3af' }}>Loading…</p>;
+  if (status === 'loading') {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-screen bg-surface-light gap-3 select-none">
+        <div className="w-10 h-10 border-4 border-primary/20 border-t-primary rounded-full animate-spin" />
+        <p className="text-text-muted text-xs font-semibold">Validating admin credentials…</p>
+      </div>
+    );
+  }
 
   const handleVerify = async (profileId: string, verify: boolean) => {
     const res = await fetch(`/api/admin/recruiters/${profileId}`, {
-      method: 'PATCH', headers: { 'Content-Type': 'application/json' },
+      method: 'PATCH',
+      headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ adminVerified: verify }),
     });
     if (res.ok) {
-      setRecruiters((prev) => prev.map((r) =>
-        r._id === profileId ? { ...r, adminVerified: verify } : r
-      ));
-      showFlash(verify ? 'Recruiter verified ✓' : 'Recruiter unverified');
-    } else { showFlash('Failed to update.'); }
+      setRecruiters((prev) =>
+        prev.map((r) => (r._id === profileId ? { ...r, adminVerified: verify } : r))
+      );
+      showFlash(verify ? 'Recruiter account verified ✓' : 'Recruiter account unverified');
+    } else {
+      showFlash('Failed to update recruiter verification.');
+    }
   };
 
   const handleDelete = async <T extends { _id: string }>(
-    id: string, endpoint: string, setter: React.Dispatch<React.SetStateAction<T[]>>
+    id: string,
+    endpoint: string,
+    setter: React.Dispatch<React.SetStateAction<T[]>>
   ) => {
-    if (!window.confirm('Delete this item permanently?')) return;
+    if (!window.confirm('Are you sure you want to delete this item permanently? This is an administrative overwrite.')) return;
     const { ok, error } = await adminDelete(`${endpoint}/${id}`);
-    if (ok) { setter((prev) => prev.filter((x) => x._id !== id)); showFlash('Deleted.'); }
-    else showFlash(error ?? 'Delete failed.');
+    if (ok) {
+      setter((prev) => prev.filter((x) => x._id !== id));
+      showFlash('Item deleted successfully.');
+    } else {
+      showFlash(error ?? 'Deletion failed.');
+    }
   };
 
   const tabBtn = (t: Tab, label: string, count: number) => (
     <button
       onClick={() => setTab(t)}
-      style={{
-        padding: '9px 18px', border: 'none', background: 'none', cursor: 'pointer',
-        fontSize: '0.875rem', fontWeight: tab === t ? 700 : 400,
-        color: tab === t ? '#2563eb' : '#6b7280',
-        borderBottom: tab === t ? '2px solid #2563eb' : '2px solid transparent',
-        marginBottom: -1,
-      }}
+      className={`px-4 py-2.5 font-bold text-xs border-b-2 transition-all cursor-pointer outline-none flex items-center gap-2 ${tab === t
+          ? 'border-primary text-primary'
+          : 'border-transparent text-text-secondary hover:text-text-primary'
+        }`}
     >
-      {label} ({count})
+      <span>{label}</span>
+      <span
+        className={`px-2 py-0.5 text-[10px] font-bold rounded-full ${tab === t ? 'bg-primary/10 text-primary' : 'bg-slate-100 text-text-muted'
+          }`}
+      >
+        {count}
+      </span>
     </button>
   );
 
+  const avgRating =
+    reviews.length > 0
+      ? (reviews.reduce((acc, r) => acc + r.rating, 0) / reviews.length).toFixed(1)
+      : '0.0';
+
+  const pendingRecruiters = recruiters.filter((r) => !r.adminVerified).length;
+  const activeJobs = jobs.filter((j) => new Date(j.deadline) >= new Date()).length;
+  const selectedApps = applications.filter((a) => a.status === 'selected').length;
+
   return (
-    <div className="dashboard">
-      <div className="page-hd">
-        <div>
-          <h1>Admin Dashboard</h1>
-          <p style={{ fontSize: '0.82rem', color: '#6b7280', marginTop: 3 }}>
-            {session?.user?.email}
-          </p>
+    <AuthenticatedLayout allowedRoles={['admin']}>
+      <div className="space-y-6">
+
+        {/* ── TOP HEADER ── */}
+        <header className="border-b border-surface-mid pb-4 flex flex-col md:flex-row md:items-center justify-between gap-4 select-none">
+          <div>
+            <h1 className="text-xl font-display font-extrabold text-text-primary tracking-tight">Admin Control Panel</h1>
+            <p className="text-[11px] text-text-muted font-bold uppercase tracking-wider mt-0.5 flex items-center gap-1.5">
+              <span className="material-symbols-outlined text-xs">shield</span>
+              Developer Overwrite &mdash; {session?.user?.email}
+            </p>
+          </div>
+          <Button variant="outline" size="sm" onClick={loadAll} className="text-xs font-bold" icon={<span className="material-symbols-outlined text-sm">refresh</span>}>
+            Reload Data
+          </Button>
+        </header>
+
+        {flash && (
+          <div
+            className={`border text-xs font-semibold rounded-xl py-3.5 px-4 flex items-center gap-2 mb-4 select-none animate-pulse ${flash.includes('failed') || flash.includes('Failed')
+                ? 'bg-accent-rose/10 text-accent-rose border-accent-rose/25'
+                : 'bg-accent-teal/10 text-accent-teal border-accent-teal/20'
+              }`}
+          >
+            <span className="material-symbols-outlined text-sm">
+              {flash.includes('failed') || flash.includes('Failed') ? 'error' : 'check_circle'}
+            </span>
+            <span>{flash}</span>
+          </div>
+        )}
+
+        {/* ── KPI METRICS ROW ── */}
+        <section className="grid grid-cols-2 lg:grid-cols-4 gap-4">
+          <KPICard
+            title="Total Recruiters"
+            value={recruiters.length}
+            icon={<span className="material-symbols-outlined text-[20px]">supervisor_account</span>}
+            delta={{ value: `${pendingRecruiters} pending`, isPositive: pendingRecruiters === 0 }}
+          />
+          <KPICard
+            title="Avg Community Rating"
+            value={`${avgRating} ★`}
+            icon={<span className="material-symbols-outlined text-[20px] text-accent-amber">stars</span>}
+            delta={{ value: `${reviews.length} reviews`, isPositive: true }}
+          />
+          <KPICard
+            title="Active Listings"
+            value={jobs.length}
+            icon={<span className="material-symbols-outlined text-[20px] text-primary">work</span>}
+            delta={{ value: `${activeJobs} active`, isPositive: true }}
+          />
+          <KPICard
+            title="Student Applications"
+            value={applications.length}
+            icon={<span className="material-symbols-outlined text-[20px] text-accent-teal">assignment</span>}
+            delta={{ value: `${selectedApps} selected`, isPositive: true }}
+          />
+        </section>
+
+        {/* ── SELECTION DATABASE TABS ── */}
+        <div className="flex border-b border-surface-mid select-none flex-wrap gap-2 pt-2">
+          {tabBtn('recruiters', 'Recruiters', recruiters.length)}
+          {tabBtn('reviews', 'Reviews', reviews.length)}
+          {tabBtn('jobs', 'Jobs', jobs.length)}
+          {tabBtn('applications', 'Applications', applications.length)}
         </div>
-      </div>
 
-      {flash && (
-        <div className={`alert ${flash.includes('failed') || flash.includes('Failed') ? 'alert-error' : 'alert-success'}`}>
-          {flash}
-        </div>
-      )}
+        {loading && (
+          <div className="flex justify-center items-center py-12 select-none">
+            <div className="animate-spin rounded-full h-8 w-8 border-2 border-primary border-t-transparent" />
+          </div>
+        )}
 
-      {/* Tabs */}
-      <div style={{ display: 'flex', borderBottom: '1px solid #e4e4e7', marginBottom: 20, flexWrap: 'wrap' }}>
-        {tabBtn('recruiters',   'Recruiters',   recruiters.length)}
-        {tabBtn('reviews',      'Reviews',      reviews.length)}
-        {tabBtn('jobs',         'Jobs',         jobs.length)}
-        {tabBtn('applications', 'Applications', applications.length)}
-      </div>
+        {/* ── TABS CONTENT ── */}
+        {!loading && (
+          <div className="space-y-4">
 
-      {loading && <p style={{ color: '#9ca3af', fontSize: '0.88rem', padding: '20px 0' }}>Loading…</p>}
-
-      {/* ══ RECRUITERS ══ */}
-      {!loading && tab === 'recruiters' && (
-        <div>
-          <p style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: 14 }}>
-            Recruiters who submitted firm details. Verify them to allow job posting.
-          </p>
-          {recruiters.length === 0 ? <div className="empty">No recruiter profiles yet.</div>
-            : recruiters.map((r) => {
-              const user = typeof r.userId === 'object' ? r.userId : null;
-              return (
-                <div className="card" key={r._id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 700, fontSize: '0.95rem' }}>{r.firmName}</div>
-                      <div style={{ fontSize: '0.82rem', color: '#6b7280', margin: '3px 0' }}>
-                        {user && <>{user.name} &middot; {user.email}</>}
-                      </div>
-                      <div style={{ fontSize: '0.82rem', color: '#374151' }}>
-                        {r.designation}
-                        {r.firmWebsite && <> &middot; <a href={r.firmWebsite} target="_blank" rel="noopener noreferrer">{r.firmWebsite}</a></>}
-                      </div>
-                      <div style={{ fontSize: '0.78rem', color: '#9ca3af', marginTop: 3 }}>
-                        Phone: {r.phone} &nbsp;|&nbsp; Submitted: {new Date(r.createdAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                    <div style={{ display: 'flex', flexDirection: 'column', alignItems: 'flex-end', gap: 8, flexShrink: 0 }}>
-                      <span className={`tag ${r.adminVerified ? 'tag-green' : 'tag-yellow'}`}>
-                        {r.adminVerified ? '✓ Verified' : '⏳ Pending'}
-                      </span>
-                      {r.adminVerified
-                        ? <button className="btn btn-sm btn-danger" onClick={() => void handleVerify(r._id, false)}>Unverify</button>
-                        : <button className="btn btn-sm btn-primary" onClick={() => void handleVerify(r._id, true)}>Verify ✓</button>
-                      }
-                    </div>
-                  </div>
+            {/* 1. RECRUITERS TAB */}
+            {tab === 'recruiters' && (
+              <div className="space-y-4">
+                <div className="text-xs text-text-secondary font-semibold flex items-center gap-1 select-none">
+                  <span className="material-symbols-outlined text-sm">info</span>
+                  <span>Recruiter profiles awaiting authorization. Verified users are unlocked to post opportunities.</span>
                 </div>
-              );
-            })}
-        </div>
-      )}
 
-      {/* ══ REVIEWS ══ */}
-      {!loading && tab === 'reviews' && (
-        <div>
-          <p style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: 14 }}>All reviews. You can delete any.</p>
-          {reviews.length === 0 ? <div className="empty">No reviews yet.</div>
-            : reviews.map((r) => {
-              const reviewer = typeof r.reviewerId === 'object' ? r.reviewerId : null;
-              const reviewee = typeof r.revieweeId === 'object' ? r.revieweeId : null;
-              const job      = typeof r.jobId === 'object' && r.jobId ? r.jobId : null;
-              return (
-                <div className="card" key={r._id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ display: 'flex', alignItems: 'center', gap: 6, flexWrap: 'wrap', marginBottom: 4 }}>
-                        <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{reviewer?.name}</span>
-                        <span style={{ fontSize: '0.75rem', color: '#9ca3af', textTransform: 'capitalize' }}>({reviewer?.role})</span>
-                        <span style={{ fontSize: '0.78rem', color: '#6b7280' }}>→ reviewed</span>
-                        <span style={{ fontWeight: 600, fontSize: '0.88rem' }}>{reviewee?.name}</span>
-                        <span style={{ fontSize: '0.75rem', color: '#9ca3af', textTransform: 'capitalize' }}>({reviewee?.role})</span>
-                      </div>
-                      {job && (
-                        <div style={{ fontSize: '0.78rem', color: '#6b7280', marginBottom: 5 }}>
-                          re: {(job as { title?: string }).title} — {(job as { companyName?: string }).companyName}
+                {recruiters.length === 0 ? (
+                  <div className="text-center py-12 bg-white border border-surface-mid rounded-xl text-text-muted text-xs font-semibold">
+                    No recruiter accounts registered.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3.5">
+                    {recruiters.map((r) => {
+                      const user = typeof r.userId === 'object' ? r.userId : null;
+                      return (
+                        <div
+                          className="bg-white p-5 border border-surface-mid rounded-xl shadow-sm flex flex-col md:flex-row justify-between items-start md:items-center gap-4 hover:shadow-md transition-all duration-200"
+                          key={r._id}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-extrabold text-sm md:text-base text-text-primary">{r.firmName}</h3>
+                            <div className="text-xs font-semibold text-text-secondary mt-1 flex flex-wrap items-center gap-x-2 gap-y-0.5 select-none">
+                              {user && (
+                                <>
+                                  <span className="font-bold text-text-primary">{user.name}</span>
+                                  <span className="text-slate-300">&bull;</span>
+                                  <span>{user.email}</span>
+                                </>
+                              )}
+                            </div>
+                            <div className="text-xs text-text-secondary mt-1.5 flex flex-wrap items-center gap-x-2 gap-y-0.5">
+                              <span className="font-bold">{r.designation}</span>
+                              {r.firmWebsite && (
+                                <>
+                                  <span className="text-slate-300 select-none">&bull;</span>
+                                  <a
+                                    href={r.firmWebsite}
+                                    target="_blank"
+                                    rel="noopener noreferrer"
+                                    className="text-primary hover:underline inline-flex items-center gap-0.5 font-bold"
+                                  >
+                                    {r.firmWebsite}
+                                    <span className="material-symbols-outlined text-xs select-none">open_in_new</span>
+                                  </a>
+                                </>
+                              )}
+                            </div>
+                            <p className="text-[10px] text-text-muted font-bold mt-3 select-none uppercase tracking-wide">
+                              Contact: {r.phone} &nbsp;|&nbsp; Registered: {new Date(r.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+
+                          <div className="flex md:flex-col items-center md:items-end gap-2.5 w-full md:w-auto shrink-0 select-none border-t border-slate-100 md:border-none pt-3.5 md:pt-0">
+                            <span className={`px-3 py-1 rounded-full text-[10px] font-bold uppercase tracking-wider ${r.adminVerified
+                                ? 'bg-accent-teal/10 text-accent-teal'
+                                : 'bg-accent-amber/10 text-accent-amber'
+                              }`}>
+                              {r.adminVerified ? 'Verified ✓' : 'Pending Verification'}
+                            </span>
+
+                            {r.adminVerified ? (
+                              <Button
+                                onClick={() => void handleVerify(r._id, false)}
+                                variant="danger"
+                                size="sm"
+                                className="text-xs font-bold w-full md:w-auto"
+                                icon={<span className="material-symbols-outlined text-xs">cancel</span>}
+                              >
+                                Revoke Verification
+                              </Button>
+                            ) : (
+                              <Button
+                                onClick={() => void handleVerify(r._id, true)}
+                                variant="primary"
+                                size="sm"
+                                className="text-xs font-bold w-full md:w-auto"
+                                icon={<span className="material-symbols-outlined text-xs">check_circle</span>}
+                              >
+                                Approve Account
+                              </Button>
+                            )}
+                          </div>
                         </div>
-                      )}
-                      <Stars rating={r.rating} />
-                      <p style={{ fontSize: '0.85rem', color: '#374151', marginTop: 6, lineHeight: 1.55 }}>{r.content}</p>
-                      <div style={{ fontSize: '0.74rem', color: '#9ca3af', marginTop: 5 }}>
-                        {new Date(r.createdAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                    <button className="btn btn-sm btn-danger" style={{ flexShrink: 0 }}
-                      onClick={() => void handleDelete(r._id, '/api/admin/reviews', setReviews)}>
-                      Delete
-                    </button>
+                      );
+                    })}
                   </div>
-                </div>
-              );
-            })}
-        </div>
-      )}
+                )}
+              </div>
+            )}
 
-      {/* ══ JOBS ══ */}
-      {!loading && tab === 'jobs' && (
-        <div>
-          <p style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: 14 }}>
-            All job posts. Deleting a job also removes all its applications.
-          </p>
-          {jobs.length === 0 ? <div className="empty">No jobs yet.</div>
-            : jobs.map((j) => {
-              const recruiter = (j as unknown as { recruiterId?: { name?: string; email?: string } }).recruiterId;
-              return (
-                <div className="card" key={j._id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <div className="card-title">{j.title}</div>
-                      <div className="card-sub">{j.companyName} &mdash; {j.location}</div>
-                      <div style={{ marginBottom: 6 }}>
-                        <span className="tag">{j.jobType}</span>
-                        {j.salary && <span className="tag tag-green">{j.salary}</span>}
-                      </div>
-                      {recruiter && <div style={{ fontSize: '0.78rem', color: '#6b7280' }}>By: {recruiter.name} ({recruiter.email})</div>}
-                      <div style={{ fontSize: '0.74rem', color: '#9ca3af', marginTop: 3 }}>
-                        Deadline: {new Date(j.deadline).toLocaleDateString()} &nbsp;|&nbsp; Posted: {new Date(j.createdAt).toLocaleDateString()}
-                      </div>
-                    </div>
-                    <button className="btn btn-sm btn-danger" style={{ flexShrink: 0 }}
-                      onClick={() => void handleDelete(j._id, '/api/admin/jobs', setJobs)}>
-                      Delete
-                    </button>
-                  </div>
+            {/* 2. REVIEWS TAB */}
+            {tab === 'reviews' && (
+              <div className="space-y-4">
+                <div className="text-xs text-text-secondary font-semibold flex items-center gap-1 select-none">
+                  <span className="material-symbols-outlined text-sm">info</span>
+                  <span>Community ratings feedback log. Click delete to prune violating records.</span>
                 </div>
-              );
-            })}
-        </div>
-      )}
 
-      {/* ══ APPLICATIONS ══ */}
-      {!loading && tab === 'applications' && (
-        <div>
-          <p style={{ fontSize: '0.82rem', color: '#6b7280', marginBottom: 14 }}>All student applications.</p>
-          {applications.length === 0 ? <div className="empty">No applications yet.</div>
-            : applications.map((a) => {
-              const job     = typeof a.jobId     === 'object' ? a.jobId     as IJob : null;
-              const student = typeof a.studentId === 'object' ? a.studentId as { _id: string; name: string; email: string } : null;
-              return (
-                <div className="card" key={a._id}>
-                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', gap: 12 }}>
-                    <div style={{ flex: 1 }}>
-                      <div style={{ fontWeight: 600, fontSize: '0.9rem' }}>
-                        {student?.name}
-                        <span style={{ fontSize: '0.78rem', color: '#9ca3af', marginLeft: 8 }}>{student?.email}</span>
-                      </div>
-                      <div style={{ fontSize: '0.82rem', color: '#6b7280', margin: '3px 0' }}>
-                        Applied to: <strong>{job?.title}</strong> at {job?.companyName}
-                      </div>
-                      <div style={{ display: 'flex', gap: 6, flexWrap: 'wrap', marginTop: 4 }}>
-                        <span className={`tag s-${a.status}`}>{a.status}</span>
-                        {a.resumePath && (
-                          <a href={a.resumePath} target="_blank" rel="noopener noreferrer"
-                            className="tag tag-green" style={{ textDecoration: 'none' }}>📄 Resume</a>
-                        )}
-                      </div>
-                      <div style={{ fontSize: '0.74rem', color: '#9ca3af', marginTop: 4 }}>
-                        Applied: {new Date(a.createdAt).toLocaleDateString()}
-                        {a.phone && <> &nbsp;|&nbsp; {a.phone}</>}
-                      </div>
-                    </div>
-                    <button className="btn btn-sm btn-danger" style={{ flexShrink: 0 }}
-                      onClick={() => void handleDelete(a._id, '/api/admin/applications', setApplications)}>
-                      Delete
-                    </button>
+                {reviews.length === 0 ? (
+                  <div className="text-center py-12 bg-white border border-surface-mid rounded-xl text-text-muted text-xs font-semibold">
+                    No community reviews published.
                   </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3.5">
+                    {reviews.map((r) => {
+                      const reviewer = typeof r.reviewerId === 'object' ? r.reviewerId : null;
+                      const reviewee = typeof r.revieweeId === 'object' ? r.revieweeId : null;
+                      const job = typeof r.jobId === 'object' && r.jobId ? r.jobId : null;
+                      return (
+                        <div
+                          className="bg-white p-5 border border-surface-mid rounded-xl shadow-sm flex flex-col md:flex-row justify-between items-start gap-4 hover:shadow-md transition-all duration-200"
+                          key={r._id}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-1.5 flex-wrap text-xs font-semibold text-text-secondary select-none mb-2">
+                              <span className="text-text-primary font-bold">{reviewer?.name}</span>
+                              <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded capitalize">({reviewer?.role})</span>
+                              <span className="text-text-muted font-normal lowercase">rated</span>
+                              <span className="text-text-primary font-bold">{reviewee?.name}</span>
+                              <span className="text-[10px] bg-slate-100 px-1.5 py-0.5 rounded capitalize">({reviewee?.role})</span>
+                            </div>
+
+                            {job && (
+                              <div className="text-xs text-primary font-bold mb-3 flex items-center gap-1 select-none">
+                                <span className="material-symbols-outlined text-xs">work</span>
+                                <span>re: {(job as { title?: string }).title} at {(job as { companyName?: string }).companyName}</span>
+                              </div>
+                            )}
+
+                            <StarRating rating={r.rating} size="sm" />
+                            <p className="text-xs text-text-secondary leading-relaxed mt-3 whitespace-pre-wrap font-medium">
+                              {r.content}
+                            </p>
+                            <p className="text-[10px] text-text-muted font-bold mt-3 select-none">
+                              {new Date(r.createdAt).toLocaleDateString(undefined, { year: 'numeric', month: 'short', day: 'numeric' })}
+                            </p>
+                          </div>
+
+                          <Button
+                            onClick={() => void handleDelete(r._id, '/api/admin/reviews', setReviews)}
+                            variant="danger"
+                            size="sm"
+                            className="text-xs font-bold shrink-0 self-start md:self-auto"
+                            icon={<span className="material-symbols-outlined text-xs">delete</span>}
+                          >
+                            Delete Review
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 3. JOBS TAB */}
+            {tab === 'jobs' && (
+              <div className="space-y-4">
+                <div className="text-xs text-text-secondary font-semibold flex items-center gap-1 select-none">
+                  <span className="material-symbols-outlined text-sm">info</span>
+                  <span>Currently published internship listings. Deletion clears matching application records.</span>
                 </div>
-              );
-            })}
-        </div>
-      )}
-    </div>
+
+                {jobs.length === 0 ? (
+                  <div className="text-center py-12 bg-white border border-surface-mid rounded-xl text-text-muted text-xs font-semibold">
+                    No active job listings published.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3.5">
+                    {jobs.map((j) => {
+                      const recruiter = (j as any).recruiterId;
+                      return (
+                        <div
+                          className="bg-white p-5 border border-surface-mid rounded-xl shadow-sm flex flex-col md:flex-row justify-between items-start gap-4 hover:shadow-md transition-all duration-200"
+                          key={j._id}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <h3 className="font-extrabold text-sm md:text-base text-text-primary">{j.title}</h3>
+                            <p className="text-xs font-bold text-primary mt-0.5 select-none">{j.companyName} &bull; {j.location}</p>
+
+                            <div className="mt-3 flex flex-wrap gap-2 select-none">
+                              <span className="px-2.5 py-0.5 bg-surface-light border border-surface-mid text-text-secondary text-[10px] rounded font-bold uppercase tracking-wider">
+                                {j.jobType}
+                              </span>
+                              {j.salary && (
+                                <span className="px-2.5 py-0.5 bg-accent-teal/10 text-accent-teal text-[10px] rounded font-bold uppercase tracking-wider">
+                                  {j.salary}
+                                </span>
+                              )}
+                            </div>
+
+                            {recruiter && (
+                              <div className="text-xs text-text-secondary font-semibold mt-3 flex items-center gap-1 select-none">
+                                <span className="material-symbols-outlined text-xs text-text-muted">person</span>
+                                <span>Publisher: {recruiter.name} ({recruiter.email})</span>
+                              </div>
+                            )}
+
+                            <p className="text-[10px] text-text-muted font-bold mt-3.5 flex items-center gap-1.5 select-none uppercase tracking-wide">
+                              <span className="material-symbols-outlined text-xs">calendar_today</span>
+                              Deadline: {new Date(j.deadline).toLocaleDateString()} &nbsp;|&nbsp; Posted: {new Date(j.createdAt).toLocaleDateString()}
+                            </p>
+                          </div>
+
+                          <div className="flex items-center gap-2 select-none shrink-0 self-start md:self-end">
+                            <Button
+                              onClick={() => void handleDelete(j._id, '/api/admin/jobs', setJobs)}
+                              variant="danger"
+                              size="sm"
+                              className="text-xs font-bold"
+                              icon={<span className="material-symbols-outlined text-xs">delete</span>}
+                            >
+                              Delete Listing
+                            </Button>
+                            <Link href={`/jobs/${j._id}`} className="decoration-none">
+                              <Button variant="secondary" size="sm" className="text-xs font-bold border border-surface-mid hover:bg-slate-50">
+                                Preview
+                              </Button>
+                            </Link>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* 4. APPLICATIONS TAB */}
+            {tab === 'applications' && (
+              <div className="space-y-4">
+                <div className="text-xs text-text-secondary font-semibold flex items-center gap-1 select-none">
+                  <span className="material-symbols-outlined text-sm">info</span>
+                  <span>Student registration logs. Admin override supports removal.</span>
+                </div>
+
+                {applications.length === 0 ? (
+                  <div className="text-center py-12 bg-white border border-surface-mid rounded-xl text-text-muted text-xs font-semibold">
+                    No application documents uploaded.
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 gap-3.5">
+                    {applications.map((a) => {
+                      const job = typeof a.jobId === 'object' ? (a.jobId as IJob) : null;
+                      const student = typeof a.studentId === 'object' ? (a.studentId as any) : null;
+                      return (
+                        <div
+                          className="bg-white p-5 border border-surface-mid rounded-xl shadow-sm flex flex-col md:flex-row justify-between items-start gap-4 hover:shadow-md transition-all duration-200"
+                          key={a._id}
+                        >
+                          <div className="min-w-0 flex-1">
+                            <div className="font-extrabold text-sm text-text-primary flex items-center gap-2 select-none">
+                              <span>{student?.name}</span>
+                              <span className="text-xs font-bold text-text-muted">({student?.email})</span>
+                            </div>
+                            <p className="text-xs text-text-secondary mt-1.5 select-none">
+                              Applied to: <strong className="text-text-primary">{job?.title}</strong> at {job?.companyName}
+                            </p>
+
+                            <div className="flex gap-2 flex-wrap mt-3.5 items-center select-none">
+                              <StatusBadge status={a.status} />
+
+                              {a.resumePath && (
+                                <a
+                                  href={a.resumePath}
+                                  target="_blank"
+                                  rel="noopener noreferrer"
+                                  className="inline-flex items-center gap-1 px-2.5 py-1 bg-accent-teal/10 text-accent-teal border border-accent-teal/15 rounded-full font-bold text-[9px] uppercase tracking-wider decoration-none"
+                                >
+                                  <span className="material-symbols-outlined text-xs">description</span>
+                                  <span>Resume File</span>
+                                </a>
+                              )}
+                            </div>
+
+                            <div className="text-[10px] text-text-muted font-bold mt-3.5 flex flex-wrap items-center gap-1.5 select-none uppercase tracking-wide">
+                              <span className="material-symbols-outlined text-xs">calendar_today</span>
+                              <span>Applied: {new Date(a.createdAt).toLocaleDateString()}</span>
+                              {a.phone && (
+                                <>
+                                  <span className="text-slate-300 font-normal">&bull;</span>
+                                  <span className="flex items-center gap-0.5">
+                                    <span className="material-symbols-outlined text-xs">call</span>
+                                    {a.phone}
+                                  </span>
+                                </>
+                              )}
+                            </div>
+                          </div>
+
+                          <Button
+                            onClick={() => void handleDelete(a._id, '/api/admin/applications', setApplications)}
+                            variant="danger"
+                            size="sm"
+                            className="text-xs font-bold shrink-0 self-start md:self-end"
+                            icon={<span className="material-symbols-outlined text-xs">delete</span>}
+                          >
+                            Delete Application
+                          </Button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+
+          </div>
+        )}
+
+      </div>
+    </AuthenticatedLayout>
   );
 }

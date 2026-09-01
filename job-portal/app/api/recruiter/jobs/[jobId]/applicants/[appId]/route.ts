@@ -35,6 +35,19 @@ export async function PATCH(req: NextRequest, { params }: Ctx): Promise<NextResp
     );
     if (!app) return NextResponse.json({ error: 'Application not found.' }, { status: 404 });
 
+    // ── Dispatch student in-app notification ─────────────────────────────────
+    try {
+      const Notification = require('@/models/Notification').default;
+      await Notification.create({
+        userId: app.studentId,
+        title: 'Application Status Updated',
+        message: `Your application for "${job.title}" has been marked as "${status.toUpperCase()}".`,
+        type: 'application',
+      });
+    } catch (notifyErr) {
+      console.error('Failed to create status update notification:', notifyErr);
+    }
+
     return NextResponse.json(JSON.parse(JSON.stringify(app)));
   } catch (err) {
     console.error(err);

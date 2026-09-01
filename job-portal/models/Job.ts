@@ -13,6 +13,11 @@ export interface IJobDocument extends Document {
   skills:      string[];
   deadline:    Date;
   eligibility: string;
+  stipendAmount?: number;
+  durationWeeks?: number;
+  ppoPossibility?: boolean;
+  internCertificate?: boolean;
+  views?: number;
   createdAt:   Date;
   updatedAt:   Date;
 }
@@ -33,9 +38,22 @@ const JobSchema = new Schema<IJobDocument>(
     skills:      [{ type: String }],
     deadline:    { type: Date, required: true },
     eligibility: { type: String, trim: true, default: '' },
+    stipendAmount: { type: Number, default: 0 },
+    durationWeeks: { type: Number, default: 0 },
+    ppoPossibility: { type: Boolean, default: false },
+    internCertificate: { type: Boolean, default: false },
+    views:       { type: Number, default: 0 },
   },
   { timestamps: true }
 );
+
+// Bust stale hot-reload cache if 'stipendAmount' is missing from schema
+if (mongoose.models.Job) {
+  const paths = Object.keys((mongoose.models.Job as mongoose.Model<IJobDocument>).schema.paths);
+  if (!paths.includes('stipendAmount') || !paths.includes('views')) {
+    delete mongoose.models.Job;
+  }
+}
 
 const Job: Model<IJobDocument> =
   mongoose.models.Job || mongoose.model<IJobDocument>('Job', JobSchema);

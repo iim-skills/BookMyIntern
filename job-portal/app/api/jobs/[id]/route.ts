@@ -10,7 +10,11 @@ interface Ctx { params: { id: string } }
 export async function GET(_req: NextRequest, { params }: Ctx): Promise<NextResponse> {
   try {
     await connectDB();
-    const job = await Job.findById(params.id).lean();
+    const job = await Job.findByIdAndUpdate(
+      params.id,
+      { $inc: { views: 1 } },
+      { new: true }
+    ).lean();
     if (!job) return NextResponse.json({ error: 'Job not found.' }, { status: 404 });
     return NextResponse.json(JSON.parse(JSON.stringify(job)));
   } catch (err) {
